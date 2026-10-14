@@ -1,0 +1,55 @@
+# One command:  docker compose up        (needs Docker Compose >= 2.24 for `env_file.required`)
+#   api        http://localhost:8000/docs
+#   dashboard  http://localhost:8501
+# With no data the first start shows the SYNTHETIC demo town. For a real run:
+#   docker compose run --rm pipeline --aoi config/aoi_trishuli.yaml --date 2026-08-26
+name: trishuli-flood
+
+x-app: &app
+  build:
+    context: .
+    args:
+      SNAP_INSTALLER_URL: "${SNAP_INSTALLER_URL:-}"
+  image: trishuli-flood:latest
+  env_file:
+    - path: .env          # CDSE_USER / CDSE_PASS etc.; optional so the demo starts without credentials
+      required: false
+  environment:
+    FLOOD_OUT: "${FLOOD_OUT:-data/outputs}"
+    FLOOD_CONFIG: "${FLOOD_CONFIG:-config/aoi_trishuli.yaml}"
+    AUTO_DEMO: "${AUTO_DEMO:-1}"
+  volumes:
+    - ./data:/app/data
+    - ./models:/app/models
+    - ./reports:/app/reports
+
+services:
+  init:
+    <<: *app
+    command: ["bash", "docker/init.sh"]
+    restart: "no"
+
+  api:
+    <<: *app
+    ports: ["8000:8000"]
+    depends_on:
+      init: {condition: service_completed_successfully}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://localhost:8000/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  dashboard:
+    <<: *app
+    command: ["streamlit", "run", "dashboard/app.py", "--server.port=8501", "--server.address=0.0.0.0", "--server.headless=true"]
+    ports: ["8501:8501"]
+    depends_on:
+      init: {condition: service_completed_successfully}
+
+  # Full pipeline for any AOI/date; arguments are appended:
+  #   docker compose run --rm pipeline --aoi config/aoi_trishuli.yaml --date 2026-08-26
+  pipeline:
+    <<: *app
+    profiles: ["pipeline"]
+    entrypoint: ["/usr/local/bin/_entrypoint.sh", "python", "-m", "src.pipeline"]

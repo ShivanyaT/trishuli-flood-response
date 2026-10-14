@@ -1,0 +1,37 @@
+# GDAL/rasterio/geopandas come from conda-forge (pip wheels often break on GDAL >= 3.8).
+# Create:  micromamba create -n flood -f environment.yml && micromamba activate flood
+name: flood
+channels: [conda-forge]
+dependencies:
+  - python=3.11
+  - gdal
+  - rasterio
+  - geopandas
+  - shapely>=2
+  - pyproj
+  - numpy
+  - scipy
+  - scikit-image
+  - networkx
+  - osmnx
+  - requests
+  - pyyaml
+  - python-dotenv
+  - pytest
+  - ruff
+  - pip
+  - matplotlib
+  - weasyprint            # PDF report (needs pango; conda-forge ships it). Install fonts-noto for Nepali: conda-forge font-ttf-noto-sans (or system Noto Sans Devanagari)
+  - markdown
+  - fastapi
+  - uvicorn
+  - httpx
+  - streamlit
+  - folium
+  - pytorch              # Day 3 (use pytorch-gpu on a CUDA machine)
+  - pip:
+      - segmentation-models-pytorch
+      - huggingface_hub
+      - streamlit-folium
+  # Day 2 also needs ESA SNAP (the `gpt` command) for Sentinel-1 terrain correction - install separately.
+  # Later days: richdem (Day 4), fastapi, uvicorn, streamlit (Day 5)

@@ -1,0 +1,12 @@
+.env
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+# data is large and re-creatable from config (keep the folder, ignore the contents)
+data/*
+!data/.gitkeep
+# weights go through Git LFS / HF Hub
+*.part

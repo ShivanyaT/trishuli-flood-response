@@ -1,0 +1,11 @@
+.git
+.env
+data
+models/*.pt
+__pycache__
+*.pyc
+.pytest_cache
+.ruff_cache
+.ipynb_checkpoints
+*.tgz
+*.tar.gz
