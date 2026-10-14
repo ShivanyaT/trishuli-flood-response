@@ -1,215 +1,510 @@
-# trishuli-flood-response
+# Trishuli Flood Response
 
-Satellite-based flood damage assessment: Sentinel-1/2 + Copernicus DEM + **pre-event** OSM,
-config-driven so it runs for any AOI/date.
+A satellite-based flood assessment project that combines Sentinel-1, Sentinel-2, Copernicus DEM, and pre-event OpenStreetMap data to map flood exposure and changes in road access.
 
-Case study: Bhote Koshi → Trishuli flash flood (ice-rock avalanche / GLOF), 26 Aug 2026, Rasuwa/Nuwakot/Dhading, Nepal.
-Evaluation-only reference: Copernicus EMS EMSR927 (never used as input).
+I built this to connect satellite analysis with information that is easier to use: which buildings and roads overlap the mapped hazard, which settlements may lose access, and how to present those results through a dashboard, API, and situation report.
 
-## Run it: one command
+The project is configured through YAML files, so the same workflow can be adapted to another area and event date.
+
+## What it does
+
+- Maps flood water and possible debris/scour using satellite imagery.
+- Includes a classical baseline and a trainable flood segmentation model.
+- Estimates building, road, and bridge exposure using pre-event OSM data.
+- Identifies settlements that lose mapped road access after the event.
+- Compares access under two scenarios: exposed bridges remain usable, or exposed bridges fail.
+- Produces reports in English and Nepali.
+- Provides a Streamlit dashboard, FastAPI endpoints, and a copilot grounded in generated results.
+- Includes a synthetic demo for testing without downloading satellite data.
+
+The results describe exposure, not confirmed structural damage. A building overlapping a flood mask is not automatically a destroyed building.
+
+## Project status
+
+The repository includes the processing pipeline, synthetic demo, dashboard, API, training code, and evaluation tools. However, not every execution path has been verified.
+
+Current limitations:
+
+- The Docker configuration has been checked with `docker compose config` and static tests, but the image has not yet been built and tested end to end.
+- PDF generation is currently failing in my Windows environment because of native-library issues involving WeasyPrint and its dependencies.
+- Some Makefile targets use Unix-style environment variables and need adjustment on Windows.
+- Real case-study results and validation metrics should only be reported after the corresponding pipeline stages have completed.
+- The Nepali report and copilot templates still need review by a native speaker.
+
+Missing results in the final report are shown as `PENDING`.
+
+## Case-study configuration
+
+The current configuration targets the Bhote Koshi–Trishuli corridor in Nepal, covering parts of Rasuwa, Nuwakot, and Dhading.
+
+The configured event date is `2026-08-26`, and the configured evaluation reference is Copernicus EMS `EMSR927`.
+
+These identifiers are part of the current project setup. The event details, imagery coverage, and reference activation should be checked against the original sources before presenting this as a validated case study.
+
+EMS reference data is reserved for evaluation. It is not used to generate the flood masks or exposure estimates.
+
+## Quick start with Docker
+
+Replace `<repo-url>` with your repository URL:
 
 ```bash
-git clone <repo-url> && cd trishuli-flood-response
+git clone <repo-url>
+cd trishuli-flood-response
 docker compose up
 ```
 
-Then open the dashboard at <http://localhost:8501> and the API docs at <http://localhost:8000/docs>.
-With no data and no credentials, the first start fills `data/outputs/` with a **synthetic demo town** (labelled
-"SYNTHETIC DEMO DATA" in every output) so you can try the map, the copilot (English/Nepali) and the PDF immediately.
-It never overwrites real results. Needs Docker with Compose >= 2.24; the first build is large (conda GDAL + PyTorch).
+Open:
 
-> The Docker files were checked with `docker compose config` and static tests only. The image itself could not be built
-> in the environment where this was written (no Docker daemon), so the first `docker compose build` is its first real test.
+- Dashboard: http://localhost:8501
+- API documentation: http://localhost:8000/docs
 
-### Credentials setup
+The Docker setup is intended to generate a synthetic demo when no results or credentials are available. Demo outputs are labelled `SYNTHETIC DEMO DATA`, and the startup logic is designed not to overwrite existing real results.
+
+Requirements:
+
+- Docker with Compose 2.24 or newer.
+- Enough disk space for the image and dependencies.
+- Internet access for the first build.
+
+The first build is large because it includes geospatial dependencies and PyTorch. The Docker image still needs an end-to-end build test.
+
+### Optional environment configuration
+
+Copy the example configuration:
 
 ```bash
-cp .env.example .env     # then edit it
+cp .env.example .env
 ```
 
-| Variable | Needed for |
+On Windows PowerShell:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+Then edit the values you need:
+
+| Variable | Purpose |
 |---|---|
-| `CDSE_USER`, `CDSE_PASS` | downloading Sentinel-1/2 from the Copernicus Data Space (free account: <https://dataspace.copernicus.eu>). Searching is public. |
-| `COPILOT_LLM`, `OLLAMA_*`, `OPENAI_*` | optional nicer copilot wording; default is deterministic templates |
-| `HF_TOKEN` | optional, only if the Kuro Siwo download asks for it |
-| `FLOOD_OUT`, `AUTO_DEMO` | which results the API/dashboard show; `AUTO_DEMO=0` disables the synthetic demo |
+| `CDSE_USER`, `CDSE_PASS` | Credentials for Sentinel downloads from Copernicus Data Space |
+| `COPILOT_LLM` | Optional language-model backend; templates are used by default |
+| `OLLAMA_*`, `OPENAI_*` | Settings for the selected language-model backend |
+| `HF_TOKEN` | Optional token if the training-data download requires authentication |
+| `FLOOD_OUT` | Results directory used by the dashboard and API |
+| `AUTO_DEMO` | Set to `0` to disable automatic demo generation |
 
-`.env` is git-ignored and read by Compose automatically (it is optional, so the demo starts without it).
+`.env` is git-ignored. Do not commit credentials.
 
-### Run the real case study
+## Local setup
+
+Create and activate the environment:
 
 ```bash
-# in Docker
-docker compose run --rm pipeline --aoi config/aoi_trishuli.yaml --date 2026-08-26
-# or in a local environment (micromamba create -n flood -f environment.yml && micromamba activate flood)
+micromamba create -n flood -f environment.yml
+micromamba activate flood
+```
+
+Run the tests:
+
+```bash
+make test
+```
+
+Generate synthetic data:
+
+```bash
+make demo
+```
+
+The local demo writes to:
+
+```text
+data/demo/outputs/
+```
+
+This is different from `data/outputs/`, which several Makefile targets use by default. Make sure the dashboard, API, and report commands point to the results you want to use.
+
+### Run the demo dashboard on Windows
+
+Some Makefile targets currently use Linux/macOS environment-variable syntax. In PowerShell, run the services directly:
+
+```powershell
+$env:FLOOD_OUT="data/demo/outputs"
+$env:FLOOD_CONFIG="config/aoi_trishuli.yaml"
+python -m streamlit run dashboard/app.py
+```
+
+### Run the demo API on Windows
+
+Open another terminal, activate `flood`, and run:
+
+```powershell
+$env:FLOOD_OUT="data/demo/outputs"
+$env:FLOOD_CONFIG="config/aoi_trishuli.yaml"
+python -m uvicorn src.api:app --port 8000
+```
+
+The API documentation is available at http://localhost:8000/docs.
+
+## Running the satellite pipeline
+
+### 1. Inspect the planned inputs
+
+```bash
+make plan
+```
+
+This selects the satellite scenes and writes an input manifest before downloading the imagery. Check the selected scenes, acquisition dates, orbit information, and download size first.
+
+### 2. Download the inputs
+
+Add your Copernicus Data Space credentials to `.env`, then run:
+
+```bash
+make ingest
+```
+
+The input sources are:
+
+- Sentinel-1 radar imagery.
+- Sentinel-2 optical imagery.
+- Copernicus DEM GLO-30.
+- A pre-event OSM snapshot from ohsome.
+
+### 3. Preprocess the imagery
+
+```bash
+make preprocess
+```
+
+Sentinel-1 preprocessing requires ESA SNAP's `gpt` executable on `PATH`, or an explicit path:
+
+```bash
+make preprocess GPT=/path/to/gpt
+```
+
+The SNAP graph handles orbit correction, noise removal, calibration, filtering, and terrain correction.
+
+Sentinel-2 preprocessing creates a reflectance stack and uses the scene classification layer to mask clouds and shadows.
+
+### 4. Generate the hazard masks
+
+```bash
+make baseline
+```
+
+The baseline combines radar change, optical information where usable, and terrain-based filtering.
+
+If trained model weights are available:
+
+```bash
+make infer
+```
+
+### 5. Calculate exposure and access changes
+
+```bash
+make damage cutoff flowpath
+```
+
+These stages intersect the hazard with pre-event infrastructure, evaluate changes in road connectivity, and estimate a downstream flow path.
+
+### 6. Generate the situation report
+
+```bash
+make report
+```
+
+For local demo outputs, use:
+
+```bash
+python -m src.report --config config/aoi_trishuli.yaml --outputs data/demo/outputs
+```
+
+PDF generation requires a working WeasyPrint installation and a Devanagari font for Nepali text. See the troubleshooting section for the current Windows issue.
+
+## Running the full pipeline
+
+Locally:
+
+```bash
 python -m src.pipeline --aoi config/aoi_trishuli.yaml --date 2026-08-26
 ```
 
-Same-orbit S1 pair selection, SNAP preprocessing, flood and debris masks, damage, cut-off, flow path and PDF run in order.
-Add `--dry-run` to see the commands, `--from-stage damage` to re-run only the fast tail, `--bbox W S E N` for another area.
-To view a real run: `FLOOD_OUT=data/runs/Trishuli_2026_2026-08-26/outputs docker compose up`.
+With Docker, once the image and SNAP setup are working:
 
-**Sentinel-1 preprocessing needs ESA SNAP (`gpt`).** The image does not include it by default. Either build with
-`--build-arg SNAP_INSTALLER_URL=<SNAP Linux installer url>` (optional, untested here) or run the pipeline locally with SNAP
-installed (`make pipeline GPT=/path/to/gpt`). Everything after preprocessing, the API, the dashboard and the demo need no SNAP.
-There is no GPU in the image; training (`make kuro-data tune train`) is meant for a GPU machine (see "Training on Kaggle").
+```bash
+docker compose run --rm pipeline --aoi config/aoi_trishuli.yaml --date 2026-08-26
+```
 
-### Expected outputs
+Useful options:
 
-For a run in `data/runs/<AOI>_<date>/` (or `data/outputs/` for the demo):
-
-| File | Content |
+| Option | Purpose |
 |---|---|
-| `raw/manifest.json` | the chosen S1 pair (same relative orbit), S2 scenes, DEM and OSM snapshot |
-| `outputs/flood_mask.tif`, `flood_mask_ml.tif` | new flood water (baseline; trained model if weights exist) |
-| `outputs/debris_mask.tif`, `flood_report.json` | debris/scour mask; areas, radar-unobservable and cloud fractions |
-| `outputs/damage.gpkg`, `damage_summary.json` | buildings, roads and bridges inside the hazard (exposure, not damage) |
-| `outputs/cutoff_settlements.{gpkg,csv}`, `cutoff_summary.json` | newly cut-off settlements under two bridge scenarios |
-| `outputs/flowpath.gpkg` | downstream flow path from `flow_source` |
-| `outputs/situation_report.pdf` | one-page report, English and Nepali |
-| `reports/validation.{json,md}`, `fig_val_*.png` | EMSR927 comparison (`make validate`; needs the EMSR vectors in `data/emsr927/`) |
-| `reports/final_report.{md,pdf}` | six-page report; any number not yet produced prints as `PENDING` |
-| `reports/limitations.md` | what the numbers do and do not mean |
+| `--dry-run` | Show the planned commands |
+| `--from-stage damage` | Restart from the exposure-analysis stage |
+| `--bbox W S E N` | Override the area of interest |
 
-### Make targets
+Pipeline runs use separate folders under `data/runs/`.
 
-`make ingest`, `make train`, `make infer`, `make dashboard`, `make report` are the main steps; `make help`-style comments are
-in the Makefile (also `plan`, `preprocess`, `baseline`, `damage`, `cutoff`, `flowpath`, `validate`, `final-report`, `pipeline`,
-`demo`, `api`, `test`, `lint`, `docker-build`, `docker-up`).
+Point `FLOOD_OUT` to the relevant run's `outputs` directory to view its results.
 
-### Troubleshooting
+### SNAP in Docker
 
-- *"env_file ... required" error:* upgrade Docker Compose to >= 2.24, or `touch .env`.
-- *Permission denied writing `data/`:* the container user is uid 1000; `chmod -R a+rwX data models reports` or run as that uid.
-- *Nepali text shows boxes in the PDF:* a Devanagari font is missing (the image installs Noto; locally install Noto Sans Devanagari).
-- *Dashboard map is blank offline:* the interactive map loads Leaflet from a CDN; use the static map tab.
+The Docker image does not include SNAP by default.
 
-### Case study validation (Day 6)
+An optional build argument is provided:
 
-```bash
-python -m src.validate inspect --emsr-dir data/emsr927          # check file/column names first
-make validate EMSR_DATE=2026-08-27                             # strict + tolerant IoU/F1, buildings, bridges, cut-off
-make final-report REPO_URL=https://github.com/<you>/<repo>
+```text
+--build-arg SNAP_INSTALLER_URL=<SNAP Linux installer URL>
 ```
 
-`notebooks/06_case_study.ipynb` walks through it. `src/validate.py` is evaluation only; no other module imports it (tested).
-`config/aoi_koshi_example.yaml` is a second AOI to show nothing is hard-coded to Trishuli (its date is a placeholder).
+This installation path has not been tested. Alternatively, run preprocessing locally with SNAP installed.
 
----
+The demo, dashboard, API, and downstream analysis do not require SNAP.
 
-## Step-by-step (local environment)
+## Main outputs
 
-```bash
-micromamba create -n flood -f environment.yml && micromamba activate flood
-cp .env.example .env          # add free CDSE credentials (https://dataspace.copernicus.eu)
-make test
-make plan                     # picks scenes, prints sizes, writes data/raw/manifest.json (no credentials needed)
-make ingest                   # downloads S1, S2, DEM, OSM into data/raw/
+Not every file is produced by every command. Demo generation, pipeline runs, and validation use different output directories.
+
+| Output | Description |
+|---|---|
+| `raw/manifest.json` | Selected satellite scenes and input metadata |
+| `outputs/flood_mask.tif` | Baseline flood mask |
+| `outputs/flood_mask_ml.tif` | Model prediction, when trained weights are available |
+| `outputs/debris_mask.tif` | Possible debris/scour mask |
+| `outputs/flood_report.json` | Hazard areas and observation-quality information |
+| `outputs/damage.gpkg` | Exposed infrastructure |
+| `outputs/damage_summary.json` | Exposure summary |
+| `outputs/cutoff_settlements.gpkg` | Settlement-access results |
+| `outputs/cutoff_settlements.csv` | Tabular settlement-access results |
+| `outputs/cutoff_summary.json` | Access summary for both bridge scenarios |
+| `outputs/flowpath.gpkg` | Estimated downstream flow path |
+| `outputs/situation_report.pdf` | English/Nepali situation report |
+| `reports/validation.json`, `reports/validation.md` | Evaluation results |
+| `reports/fig_val_*.png` | Validation figures |
+| `reports/final_report.md`, `reports/final_report.pdf` | Final project report |
+| `reports/limitations.md` | Interpretation notes and limitations |
+
+## Flood-model training
+
+Training is intended for a GPU machine, such as Kaggle or Colab. The Docker setup does not configure GPU access.
+
+The model uses five input channels:
+
+1. Post-event VV.
+2. Post-event VH.
+3. Pre-event VV.
+4. Pre-event VH.
+5. VV change.
+
+The training workflow uses Kuro Siwo data. Threshold tuning uses training patches, validation is separated by event, and testing uses the dataset's official test split.
+
+There is no claimed Nepal or Himalaya hold-out split.
+
+### Kaggle / Colab workflow
+
+Enable a GPU and internet access, then clone and install the project:
+
+```python
+!git clone <repo-url>
 ```
 
-`make plan` is the important first step: it shows which same-orbit-track S1 pair and which S2 tiles
-will be used, and the total download size, before you spend bandwidth.
-
-## Days 2-3
-
-```bash
-make preprocess      # needs ESA SNAP's `gpt` on PATH (or GPT=/path/to/gpt); also does Sentinel-2
-make baseline        # data/outputs/flood_mask.tif, debris_mask.tif, flood_report.json
-# AI component (run on a GPU machine, see "Training on Kaggle")
-make kuro-data && make tune && make train && make evaluate
-make infer           # data/outputs/flood_mask_ml.tif
+```python
+%cd trishuli-flood-response
+!pip install -e ".[ml]"
 ```
 
-## Days 4-5
+Inspect samples before training:
 
-```bash
-make damage cutoff flowpath     # data/outputs/damage.gpkg, cutoff_settlements.{gpkg,csv}, flowpath.gpkg, *_summary.json
-make report                     # data/outputs/situation_report.pdf (EN + NE)
-make dashboard                  # http://localhost:8501   (map, situation report, copilot chat, downloads)
-make api                        # http://localhost:8000/docs  (POST /copilot/ask, /summary, /layers/*, /downloads/*)
-make pipeline DATE=2026-08-26   # everything from raw data, any AOI/date, one work folder per run
-make demo                       # SYNTHETIC town with known answers (labelled) - try the UI before real data exists
+```python
+!python -m src.train_data inspect --split train
 ```
 
-Optional language model for nicer wording: `COPILOT_LLM=ollama` (Llama 3.1 8B at localhost:11434) or `COPILOT_LLM=openai`
-(`OPENAI_API_KEY`). Default is no model: deterministic templates in English and Nepali.
+Check the array shapes, radar units, and event identifiers before proceeding.
 
-**Why the copilot cannot invent a number.** Numbers come only from `src/facts.py` (reads `data/outputs/*`). A model, if
-enabled, only words the JSON it is given; its answer is scanned and rejected if any number is not in that JSON (or a
-faithful rounding of one), and the template answer is used instead. Tested in `tests/test_day5.py`.
-The Nepali templates were written by hand, not machine-translated, so numbers cannot be altered; **have a native speaker
-review them** before submission. The PDF needs a Devanagari font (Noto Sans Devanagari) and pango for WeasyPrint.
+Run:
 
-### Training on Kaggle / Colab
-1. New notebook, GPU on, Internet on. `!git clone <your repo> && cd trishuli-flood-response && pip install -e .[ml]`.
-2. `!python -m src.train_data inspect --split train` first: it prints array shapes/units of a few samples. The code
-   auto-detects linear vs dB and the event id, but the dataset card does not document either, so confirm they look sane.
-3. `!make kuro-data tune train evaluate` (cache is ~5 GB for 8000 patches; shards are streamed, not downloaded whole).
-4. Download `models/flood_unet.pt`, `models/baseline_thresholds.json`, `reports/` back to your repo (weights go through Git LFS).
+```python
+!make kuro-data tune train evaluate
+```
 
-## Layout
+The configured cache is approximately 5 GB for 8,000 patches. Shards are streamed rather than downloaded in full.
+
+Copy the following back to your local project:
+
+- `models/flood_unet.pt`
+- `models/baseline_thresholds.json`
+- Generated reports and evaluation results
+
+Model weights are tracked with Git LFS.
+
+## Validation
+
+Place the evaluation vectors in:
+
+```text
+data/emsr927/
+```
+
+Inspect their structure first:
+
+```bash
+python -m src.validate inspect --emsr-dir data/emsr927
+```
+
+Then run validation with the appropriate reference date:
+
+```bash
+make validate EMSR_DATE=2026-08-27
+```
+
+Generate the final report:
+
+```bash
+make final-report REPO_URL=[https://github.com/ShivanyaT/trishuli-flood-response.git](https://github.com/ShivanyaT/trishuli-flood-response.git)
+```
+
+The evaluation workflow includes mask-overlap metrics and comparisons for buildings, bridges, and settlement access.
+
+`notebooks/06_case_study.ipynb` walks through the case-study workflow. The validation module is kept separate from the processing pipeline to avoid using reference data as an input.
+
+## Copilot
+
+The default copilot uses deterministic English and Nepali templates. It does not require a language model.
+
+Optional backends:
+
+- Ollama, configured through `COPILOT_LLM=ollama`.
+- An OpenAI backend, configured through `COPILOT_LLM=openai` and the relevant API settings.
+
+The copilot reads calculated results through `src/facts.py`. When a language model is enabled, it receives those facts for wording rather than calculating new statistics.
+
+The code checks numbers in the generated answer against the supplied facts and falls back to a template if the check fails. This is a guardrail, not a guarantee that every possible answer is correct.
+
+The Nepali templates are handwritten and still need native-speaker review.
+
+## Analysis choices
+
+### Pre-event OSM
+
+The infrastructure snapshot must predate the event. Using current OSM could introduce roads, buildings, or edits added after the flood.
+
+The road graph is built from that snapshot rather than a live OSM query.
+
+### Newly cut-off settlements
+
+A settlement is counted as newly cut off only if it could reach a mapped hospital or town before the event and cannot afterward.
+
+Settlements with no mapped route before the event are listed separately. They may reflect incomplete OSM coverage rather than flood-related isolation.
+
+### Two bridge scenarios
+
+A 10 m hazard mask cannot establish whether a bridge survived. The project therefore reports access under two assumptions:
+
+- Exposed bridges remain usable.
+- Exposed bridges fail.
+
+### Exposure rather than destruction
+
+Infrastructure overlap is used to identify possible exposure. The proportion of a building footprint inside the hazard is a prioritisation measure, not a structural damage grade.
+
+### Terrain and observation limits
+
+Terrain filtering helps reduce hillside and wet-snow false positives, but steep terrain, radar shadow, layover, cloud cover, and acquisition timing still limit what can be observed.
+
+The debris mask is separate from the water mask because a debris-flow event may leave deposits and scour rather than persistent standing water.
+
+### Approximate flow source
+
+The configured flow source is near the Rasuwagadhi border crossing. It is a downstream starting point for routing, not a mapped avalanche-origin location.
+
+## Repository structure
 
 | Path | Purpose |
 |---|---|
-| `config/aoi_*.yaml` | AOI, event date, windows, thresholds (the only thing that changes between AOIs) |
-| `src/cdse.py` | CDSE OData search + resumable authenticated download |
-| `src/pairing.py` | Same-relative-orbit + same-direction S1 pair selection; S2 pre/post per tile |
-| `src/dem.py` | Copernicus DEM GLO-30 from AWS Open Data (anonymous) |
-| `src/osm.py` | Pre-event OSM via ohsome (tiled, de-duplicated) → GeoPackage |
-| `src/ingest.py` | CLI tying the above together (`--dry-run`, `--skip-s1/s2/dem/osm`) |
-| `src/grid.py`, `src/terrain.py` | AOI-derived UTM grid, DEM slope, flood-corridor (height above valley floor) |
-| `src/s1_preprocess.py` | SNAP `gpt` graph (orbit, noise, sigma0, Lee Sigma, terrain correction) -> dB, co-registration check |
-| `src/s2_preprocess.py` | L2A -> 10 m reflectance stack + SCL cloud/shadow mask |
-| `src/flood_map.py` | Classical flood + debris baseline (S1 change, S2 refinement, corridor filter) |
-| `src/train_data.py`, `dataset.py`, `features.py` | Kuro Siwo streaming cache, dataset/augmentation, shared input features |
-| `src/model.py`, `train.py`, `evaluate.py`, `infer_flood.py` | U-Net/SegFormer, event-held-out training, honest evaluation, tiled inference |
-| `src/damage.py`, `src/cutoff.py`, `src/flowpath.py` | Hazard x pre-event OSM; cut-off settlements (graph from the pre-event snapshot); flow path |
-| `src/facts.py`, `src/copilot.py`, `src/api.py`, `src/report.py`, `src/pipeline.py`, `src/demo_data.py` | Deterministic tools, verified-number copilot, FastAPI, PDF, orchestration, synthetic demo |
-| `dashboard/app.py` | Streamlit dashboard (interactive map + offline static map, EN/NE report, copilot) |
-| `tests/` | Offline tests (synthetic valley scene, synthetic WebDataset tar, CPU end-to-end training) |
+| `config/` | AOI boundaries, dates, thresholds, and analysis settings |
+| `src/cdse.py` | Sentinel search and download |
+| `src/pairing.py` | Pre/post scene selection |
+| `src/dem.py`, `src/osm.py` | DEM and pre-event infrastructure inputs |
+| `src/ingest.py` | Input collection |
+| `src/grid.py`, `src/terrain.py` | Analysis grid and terrain features |
+| `src/s1_preprocess.py`, `src/s2_preprocess.py` | Satellite preprocessing |
+| `src/flood_map.py` | Classical flood and debris mapping |
+| `src/train_data.py`, `src/dataset.py`, `src/features.py` | Training data and shared features |
+| `src/model.py`, `src/train.py`, `src/evaluate.py`, `src/infer_flood.py` | Model training, evaluation, and inference |
+| `src/damage.py`, `src/cutoff.py`, `src/flowpath.py` | Exposure, connectivity, and routing |
+| `src/facts.py`, `src/copilot.py` | Result access and copilot responses |
+| `src/api.py` | FastAPI application |
+| `src/report.py`, `src/final_report.py` | Report generation |
+| `src/pipeline.py`, `src/demo_data.py` | Pipeline orchestration and synthetic demo |
+| `dashboard/app.py` | Streamlit interface |
+| `tests/` | Offline tests and synthetic test cases |
+| `notebooks/` | Case-study walkthroughs |
 
-## Changes from the original 7-day plan
+## Troubleshooting
 
-- **`sentinelsat` replaced** by a small CDSE OData client: sentinelsat targets the retired SciHub, not CDSE.
-- **`--dry-run` / manifest**: scene selection is inspectable and reproducible before any download.
-- **AOI tightened** from ~140×100 km to the flood corridor (fewer tiles, far smaller downloads). Refine when judges give the AOI.
-- **Event-time safety**: a same-day S1 pass is not treated as "post-event" unless `event_time_utc` is set.
-- **Pair ranking**: post as early as possible after the event, then pre as close as possible; alternatives are logged for the Q&A on "what if no same-orbit pair?".
-- **Cloud-limited S2 is allowed with a flag**, not a hard failure (monsoon).
-- **OSM tiling + dedup**, and a hard check that `osm_snapshot < event_date`.
+### Windows: `'FLOOD_OUT' is not recognized`
 
-## Changes in Days 2-3 (and why)
+Some Makefile targets use Unix-style inline environment variables.
 
-- **No "Himalaya hold-out".** Neither the Kuro Siwo paper nor its dataset card names a Nepal/Himalaya event, so that split
-  cannot be built. Validation is held out *by event*, testing uses the official 10-event test split, and Trishuli vs
-  EMSR927 is the only out-of-distribution check. The weights file is `models/flood_unet.pt`, not `segformer_himalaya.pt`.
-- **SNAP for terrain correction** instead of pure-Python geocoding; the graph mirrors Kuro Siwo's (sigma0, Lee Sigma 3x3,
-  10 m) so training and inference data look alike.
-- **Change-aware model**: 5 input channels (post VV/VH, pre VV/VH, VV change), not post-only. Kuro Siwo ships two
-  pre-event images; training picks one at random, inference has one.
-- **Flood-corridor filter** (height above local valley floor + slope) against wet-snow/hillside false positives.
-- **Separate debris mask** (S1 backscatter increase, S2 vegetation loss) because this was an ice-rock debris flow.
-- **S2 cloud mask from SCL** (we download L2A; s2cloudless needs L1C).
-- **Threshold tuning on train patches only**, never on test or Trishuli.
-- DEM slope input dropped: the Kuro Siwo paper's best configuration did not use a DEM.
+Use PowerShell syntax instead:
 
-## Changes in Days 4-5 (and why)
+```powershell
+$env:FLOOD_OUT="data/demo/outputs"
+$env:FLOOD_CONFIG="config/aoi_trishuli.yaml"
+python -m streamlit run dashboard/app.py
+```
 
-- **No `osmnx.graph_from_bbox`**: it queries *current* OSM, which may contain post-event edits. The road graph is built from
-  the ohsome pre-event snapshot.
-- **"Cut off" means newly cut off.** A settlement counts only if it could reach a hospital or town *before* the event and
-  cannot after. Settlements with no mapped route even before are listed separately (OSM gaps, not flood damage).
-- **Two bridge scenarios** (bridges hold / exposed bridges fail), because a 10 m mask cannot say whether a bridge survived.
-- **"Exposed", not "destroyed"**: radar/optical masks at 10 m cannot grade structural damage; severity is share of footprint
-  inside the hazard, a ranking aid.
-- **Road access only** (walking paths excluded, configurable); settlements also come from building clusters, not only `place=*`.
-- **Flow path** uses a pure-Python priority-flood + D8 (no richdem to compile). `flow_source` in the AOI config is the
-  Rasuwagadhi border crossing (approximate); the real avalanche source is upstream in Tibet.
-- **Dashboard offline fallback**: the interactive map loads Leaflet from a CDN; a static map tab works without internet.
-- Dashboard "Run analysis" re-runs the fast tail (damage, cut-off, report); a full run downloads many GB and runs from a terminal.
+### Report says output files are missing
 
-## Attribution
+Check the directory passed to `--outputs`.
 
-Contains modified Copernicus Sentinel data 2026. Copernicus DEM © DLR e.V. 2010–2014 and © Airbus Defence and Space GmbH 2014–2018, provided under COPERNICUS by the EU and ESA.
-© OpenStreetMap contributors (ODbL). Training data: Kuro Siwo (Bountos et al., NeurIPS 2024, MIT); Sen1Floods11 (Bonafilia et al., CVPR-W 2020, CC BY 4.0).
-Evaluation reference only: Copernicus EMS EMSR927.
+The local demo uses `data/demo/outputs`, while several default commands look in `data/outputs`.
+
+### WeasyPrint crashes or cannot load DLLs
+
+PDF rendering is currently unresolved in my Windows setup. Importing WeasyPrint successfully does not confirm that rendering works.
+
+Check the environment with:
+
+```bash
+python -m weasyprint --info
+```
+
+Keep the Python package and native-library setup consistent. Avoid copying DLLs between installations as a workaround.
+
+### Nepali text appears as boxes
+
+Install a Devanagari font such as Noto Sans Devanagari.
+
+### Interactive map is blank offline
+
+The interactive map loads Leaflet from a CDN. Use the static map tab without internet access.
+
+### Docker reports an `env_file` error
+
+Use Docker Compose 2.24 or newer, or create the `.env` file from `.env.example`.
+
+### Docker cannot write output files
+
+The container uses UID 1000. Check ownership and write permissions for the mounted `data`, `models`, and `reports` directories.
+
+## Data sources and attribution
+
+The project uses or includes workflows for:
+
+- Copernicus Sentinel-1 and Sentinel-2.
+- Copernicus DEM GLO-30.
+- OpenStreetMap data accessed through ohsome.
+- Kuro Siwo training data.
+- Copernicus EMS reference data for evaluation only.
+
+Attribution:
+
+- Contains modified Copernicus Sentinel data, where processed.
+- Copernicus DEM © DLR e.V. 2010–2014 and © Airbus Defence and Space GmbH 2014–2018, provided under COPERNICUS by the EU and ESA.
+- © OpenStreetMap contributors, ODbL.
+- Kuro Siwo: Bountos et al., NeurIPS 2024; consult the dataset's original licence and citation instructions.
+
+Check the original providers' attribution and redistribution requirements before publishing derived datasets.
