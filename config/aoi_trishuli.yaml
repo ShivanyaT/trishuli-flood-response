@@ -1,0 +1,42 @@
+# AOI for the Trishuli / Bhote Koshi flash-flood (ice-rock avalanche + GLOF), 26 Aug 2026.
+# Everything downstream is driven by this file: swap it to run any other AOI/date.
+name: Trishuli_2026
+
+# [min_lon, min_lat, max_lon, max_lat] (EPSG:4326).
+# Tightened from the plan's [84.5, 27.7, 85.8, 28.6] (~140 x 100 km) to the flood corridor
+# Rasuwagadhi -> Syapru Besi -> Betrawati -> Galchi. Approximate: refine against the
+# judges' AOI. Smaller AOI = fewer S1/S2 tiles, smaller downloads, faster iteration.
+bbox: [84.85, 27.80, 85.55, 28.35]
+
+event_date: 2026-08-26
+# Optional. Time of the event (UTC). If unset, a post-event S1/S2 scene must start AFTER
+# the end of event_date, so a same-day pass that may pre-date the flood is never used as "post".
+event_time_utc: null
+
+pre_window_days: 14    # search this far before the event
+post_window_days: 14   # ...and this far after
+
+# Pre-event OSM snapshot. MUST be before event_date (post-event edits are not allowed as input).
+osm_snapshot: 2026-07-27
+
+# Selection thresholds
+s1_min_coverage: 0.90   # fraction of AOI the pre AND post S1 acquisitions must cover
+s2_max_cloud: 20.0      # % cloud cover; best-available is used with a warning if none qualify
+s2_min_tile_overlap: 0.02
+
+# Tiling for the ohsome extraction (degrees); keeps each request small
+osm_tile_deg: 0.25
+
+# ---- Day 2+: analysis grid and classical-baseline thresholds (all optional; defaults shown) ----
+grid_res: 10            # metres; UTM zone is derived from the bbox (EPSG:32645 here)
+flood:
+  vv_water_db: -16.0        # post-event VV below this = water candidate
+  dvv_water_db: -3.0        # and VV dropped by at least this much vs pre-event
+  pre_water_margin_db: 1.5  # pre-event must NOT already be water (pre VV > vv_water_db + margin)
+  max_slope_deg: 20.0       # water does not pond on steep slopes
+  mndwi_water: 0.3          # Sentinel-2 water index threshold (cloud-free pixels only)
+  min_component_px: 5
+
+# Day 4 bonus (flow path): where the flood enters the AOI. Approximate: Rasuwagadhi, at the Lhende/Kerung confluence
+# (Wikipedia: 28.278 N, 85.378 E). The avalanche source itself is upstream in Tibet. Remove to skip the flowpath stage.
+flow_source: [85.378, 28.278]
