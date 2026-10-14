@@ -1,4 +1,4 @@
-import ctypes, os, glob
+import ctypes, os,
 d = r"C:\Users\hp\micromamba\envs\flood\Library\bin"
 os.add_dll_directory(d)
 for pat in ["gobject", "glib", "gio", "pango-1", "pangoft2", "harfbuzz", "fontconfig", "ffi", "intl", "pcre"]:

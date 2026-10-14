@@ -1,0 +1,7 @@
+{
+  "vv_water_db": -16.0,
+  "vv_drop_db": -1.0,
+  "tuned_on": "kuro_siwo_train",
+  "n_patches": 300,
+  "train_f1": 0.570335468661869
+}

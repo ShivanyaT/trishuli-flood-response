@@ -1,21 +1,23 @@
-"""Pre-event OSM snapshot via the ohsome API (historical OSM, so no post-event edits can leak in).
-
-The AOI is tiled so each request stays small, results are de-duplicated on @osmId
-(features crossing tile borders are returned by both tiles), and written to one GeoPackage.
-"""
+"""Pre-event OSM snapshot via the ohsome API."""
 from __future__ import annotations
 
+import os
 import logging
 import time
+from io import BytesIO
 from datetime import date
 from pathlib import Path
 
 import geopandas as gpd
 import pandas as pd
 import requests
+from dotenv import load_dotenv
+
+load_dotenv()
+OHSOME_KEY = os.getenv("OHSOME_API_KEY")
 
 log = logging.getLogger(__name__)
-OHSOME = "https://api.ohsome.org/v1/elements/geometry"
+OHSOME = "https://api.heigit.org/ohsome-api/v2-rc"
 
 LAYERS = {
     "buildings": "building=* and geometry:polygon",
@@ -40,24 +42,34 @@ def tiles(bbox, step: float):
 
 
 def _fetch(bbox, snapshot: date, flt: str, tries: int = 4) -> gpd.GeoDataFrame:
+    if not OHSOME_KEY:
+        raise RuntimeError("OHSOME_API_KEY missing from .env")
+
     data = {
-        "bboxes": ",".join(map(str, bbox)),
+        "aoi": list(bbox),
         "time": snapshot.isoformat(),
         "filter": flt,
-        "properties": "tags",
     }
+    url = OHSOME + "/extraction/features.parquet"
+
     for i in range(tries):
-        r = requests.post(OHSOME, data=data, timeout=300)
+        r = requests.post(
+            url, json=data,
+            headers={"Authorization": OHSOME_KEY},
+            timeout=300,
+        )
         if r.status_code == 200:
-            feats = r.json().get("features", [])
-            if not feats:
-                return gpd.GeoDataFrame(geometry=[], crs="EPSG:4326")
-            return gpd.GeoDataFrame.from_features(feats, crs="EPSG:4326")
+            return gpd.read_parquet(
+                BytesIO(r.content),
+                to_pandas_kwargs={"maps_as_pydicts": "strict"},
+            )
         if r.status_code in (429, 502, 503, 504):
             time.sleep(5 * (i + 1))
             continue
         raise RuntimeError(f"ohsome {r.status_code}: {r.text[:300]}")
+
     raise RuntimeError("ohsome: retries exhausted")
+
 
 
 def download_osm(bbox, snapshot: date, step: float, out_gpkg: Path) -> dict[str, int]:

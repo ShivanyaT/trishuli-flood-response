@@ -5,7 +5,7 @@ and does not work against CDSE.
 Search needs no credentials; download needs a free CDSE account.
 """
 from __future__ import annotations
-
+import os
 import logging
 import time
 from dataclasses import dataclass, field
@@ -13,6 +13,10 @@ from datetime import datetime
 from pathlib import Path
 
 import requests
+
+from dotenv import load_dotenv
+
+load_dotenv()
 from shapely.geometry import shape
 from shapely.geometry.base import BaseGeometry
 
